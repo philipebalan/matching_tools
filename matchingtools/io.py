@@ -29,3 +29,14 @@ def load_data(path: str | Path) -> pd.DataFrame:
         return pd.read_parquet(path)
 
     raise ValueError(f"Unsupported file type: {suffix}")
+
+
+def freq_table(*columns: pd.Series, normalize: bool = False) -> pd.DataFrame:
+    """Cross-tabulation, analogous to R's table()."""
+    if len(columns) == 1:
+        result = columns[0].value_counts(normalize=normalize).sort_index().to_frame()
+        result.columns = ["proportion" if normalize else "count"]
+        return result
+    if len(columns) == 2:
+        return pd.crosstab(columns[0], columns[1], normalize=normalize)
+    raise ValueError("freq_table() accepts 1 or 2 Series.")

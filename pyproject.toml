@@ -1,6 +1,6 @@
 [project]
 name = "matchingtools-teaching"
-version = "0.2.5"
+version = "0.3.0"
 description = "Teaching-oriented Python library for matching methods inspired by R MatchIt and optmatch."
 readme = "README.md"
 requires-python = ">=3.9"

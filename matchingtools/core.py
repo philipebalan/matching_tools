@@ -10,7 +10,7 @@ from scipy.optimize import linear_sum_assignment
 from scipy.spatial.distance import cdist
 
 Method = Literal["nearest", "optimal", "mahalanobis"]
-Estimand = Literal["ATT"]
+Estimand = Literal["ATT", "ATC"]
 PAIR_COLUMNS = ["treated_index", "control_index", "distance"]
 
 
@@ -29,7 +29,7 @@ class MatchResult:
     method:
         Matching method used.
     estimand:
-        Causal estimand. Currently ATT only.
+        Causal estimand. Currently ATT or ATC.
     pairs:
         DataFrame with treated index, control index, and matching distance.
     ps_model:
@@ -186,15 +186,27 @@ def _optimal_pairs(
     ratio: int,
     caliper: float | None,
 ) -> pd.DataFrame:
+    """Optimal matching using the Hungarian algorithm.
+
+    Supports ratio > 1 by duplicating each focal unit in the cost matrix.
+    """
     treated = df[df[treatment] == 1]
     control = df[df[treatment] == 0]
 
-    if ratio != 1:
-        raise NotImplementedError("Optimal matching currently supports ratio=1 only.")
-    if len(control) < len(treated):
-        raise ValueError("Optimal 1:1 ATT matching requires at least as many controls as treated units.")
+    n_treated = len(treated)
+    n_control = len(control)
+    if n_treated == 0 or n_control == 0:
+        raise ValueError("Both focal and comparison groups must contain observations.")
+    needed_controls = n_treated * ratio
+    if n_control < needed_controls:
+        raise ValueError(
+            f"Optimal {ratio}:1 matching needs at least {needed_controls} comparison units "
+            f"but only {n_control} are available."
+        )
 
-    cost = np.abs(treated[distance].to_numpy()[:, None] - control[distance].to_numpy()[None, :])
+    t_scores = np.tile(treated[distance].to_numpy(), ratio)
+    c_scores = control[distance].to_numpy()
+    cost = np.abs(t_scores[:, None] - c_scores[None, :])
     if caliper is not None:
         cost = np.where(cost <= caliper, cost, 1e9)
 
@@ -203,9 +215,10 @@ def _optimal_pairs(
     for r, c in zip(row_ind, col_ind):
         if cost[r, c] >= 1e9:
             continue
+        real_treated_pos = r % n_treated
         pairs.append(
             {
-                "treated_index": treated.index[r],
+                "treated_index": treated.index[real_treated_pos],
                 "control_index": control.index[c],
                 "distance": float(cost[r, c]),
             }
@@ -314,7 +327,7 @@ def matchit(
     method:
         ``"nearest"``, ``"optimal"``, or ``"mahalanobis"``.
     estimand:
-        Currently only ``"ATT"``.
+        ``"ATT"`` or ``"ATC"``.
     ratio:
         Number of controls per treated unit.
     replace:
@@ -328,8 +341,8 @@ def matchit(
     -------
     MatchResult
     """
-    if estimand != "ATT":
-        raise NotImplementedError("Only ATT is currently implemented.")
+    if estimand not in {"ATT", "ATC"}:
+        raise NotImplementedError("estimand must be 'ATT' or 'ATC'.")
     if ratio < 1:
         raise ValueError("ratio must be >= 1.")
     if caliper is not None and caliper < 0:
@@ -338,10 +351,13 @@ def matchit(
     _validate_binary_treatment(data, treatment)
     _validate_columns(data, covariates, role="Covariate")
     df = data.copy()
+    flip = estimand == "ATC"
+    if flip:
+        df[treatment] = 1 - df[treatment].astype(int)
     ps_model = None
 
     if method in {"nearest", "optimal"}:
-        if distance is None:
+        if distance is None or distance == "glm":
             ps, ps_model = _estimate_propensity_scores(df, treatment, covariates, formula)
             df["distance"] = ps
             distance = "distance"
@@ -361,6 +377,8 @@ def matchit(
     if pairs.empty:
         pairs = _empty_pairs()
     df["weights"] = _weights_from_pairs(df.index, pairs)
+    if flip:
+        df[treatment] = 1 - df[treatment].astype(int)
 
     return MatchResult(
         data=df,
@@ -394,4 +412,51 @@ def estimate_att(
     _validate_columns(data, [outcome, treatment, weights], role="Required")
     formula = f"{outcome} ~ {treatment}"
     model = smf.wls(formula, data=data, weights=data[weights]).fit(cov_type=robust)
+    return model
+
+
+def lm_robust(
+    formula: str,
+    data: pd.DataFrame,
+    *,
+    weights: str | None = None,
+    se_type: str = "HC2",
+) -> object:
+    """Robust OLS regression, analogous to R's estimatr::lm_robust().
+
+    Parameters
+    ----------
+    formula : str
+        Patsy formula, e.g. "lula ~ bf + age + C(gender) + hdi + I(hdi**2)".
+    data : pd.DataFrame
+        Input data.
+    weights : str, optional
+        Column name of observation weights (e.g. matching weights).
+    se_type : str
+        Heteroskedasticity-robust covariance type. "HC2" is the default and
+        matches R's se_type="HC2". Other valid values: "HC0", "HC1", "HC3".
+
+    Returns
+    -------
+    statsmodels RegressionResultsWrapper
+        Use .summary(), .params, .tvalues, .pvalues, .conf_int() as usual.
+
+    Examples
+    --------
+    # Pre-matching regression (Step 4)
+    fit = mt.lm_robust("lula ~ bf + age + C(gender) + hdi", data=d)
+
+    # Post-matching with weights (Step 6)
+    fit = mt.lm_robust(
+        "lula ~ bf + age + C(gender) + hdi",
+        data=dm,
+        weights="weights",
+    )
+    print(fit.summary())
+    """
+    w = data[weights].to_numpy() if weights is not None else None
+    if w is not None:
+        model = smf.wls(formula, data=data, weights=w).fit(cov_type=se_type)
+    else:
+        model = smf.ols(formula, data=data).fit(cov_type=se_type)
     return model

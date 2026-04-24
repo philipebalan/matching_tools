@@ -58,6 +58,38 @@ def test_nearest_no_replacement_ratio_two_weights():
     assert np.isclose(m.data.loc[["c1", "c2", "c3", "c4"], "weights"].sum(), 2.0)
 
 
+def test_atc_nearest_flips_focal_group_and_restores_labels():
+    df = _distance_df().iloc[:4].copy()
+    m = mt.matchit(df, treatment="treated", covariates=["x"], method="nearest", distance="ps", estimand="ATC")
+    assert m.estimand == "ATC"
+    assert m.data["treated"].equals(df["treated"])
+    assert (m.data.loc[["c1", "c2"], "weights"] == 1.0).all()
+    assert m.data.loc[["t1", "t2"], "weights"].sum() > 0
+
+
+def test_optimal_matching_supports_ratio_two():
+    df = _distance_df()
+    m = mt.matchit(df, treatment="treated", covariates=["x"], method="optimal", distance="ps", ratio=2)
+    assert len(m.pairs) == 4
+    assert (m.data.loc[["t1", "t2"], "weights"] == 1.0).all()
+    assert np.isclose(m.data.loc[["c1", "c2", "c3", "c4"], "weights"].sum(), 2.0)
+
+
+def test_optimal_atc_ratio_two_with_glm_distance():
+    df = pd.DataFrame(
+        {
+            "treated": [1, 1, 1, 1, 0, 0],
+            "x": [0.05, 0.20, 0.80, 0.95, 0.10, 0.90],
+            "y": [1, 1, 0, 0, 1, 0],
+        },
+        index=["t1", "t2", "t3", "t4", "c1", "c2"],
+    )
+    m = mt.matchit(df, treatment="treated", covariates=["x"], method="optimal", distance="glm", estimand="ATC", ratio=2)
+    assert len(m.pairs) == 4
+    assert (m.data.loc[["c1", "c2"], "weights"] == 1.0).all()
+    assert m.data["treated"].equals(df["treated"])
+
+
 def test_caliper_partial_and_no_matches_have_stable_empty_pairs():
     df = _distance_df().iloc[:4].copy()
     df.loc["c2", "ps"] = 0.70
@@ -197,3 +229,32 @@ def test_validation_errors_are_clear():
         mt.matchit(df, treatment="treated", covariates=["x"], method="nearest", distance="ps", caliper=-1)
     with pytest.raises(ValueError, match="column"):
         mt.estimate_att(df, outcome="missing", treatment="treated")
+
+
+def test_inference_helpers_and_lm_robust_are_exposed():
+    df = _distance_df()
+    ttest = mt.t_test(df.loc[df["treated"] == 1, "y"], df.loc[df["treated"] == 0, "y"])
+    dim = mt.difference_in_means("y ~ treated", data=df)
+    fit = mt.lm_robust("y ~ treated", data=df)
+    assert {"t", "df", "p_value", "difference"}.issubset(ttest.columns)
+    assert {"estimate", "se", "t", "p_value", "n"}.issubset(dim.columns)
+    assert np.isclose(dim.loc[0, "estimate"], df.loc[df["treated"] == 1, "y"].mean() - df.loc[df["treated"] == 0, "y"].mean())
+    assert "treated" in fit.params.index
+
+
+def test_screenreg_returns_printable_table():
+    df = _distance_df()
+    fit1 = mt.lm_robust("y ~ treated", data=df)
+    fit2 = mt.lm_robust("y ~ treated + x", data=df)
+    table = mt.screenreg([fit1, fit2], custom_model_names=["Simple", "Controls"])
+    assert "Simple" in table
+    assert "Controls" in table
+    assert "treated" in table
+
+
+def test_freq_table_one_and_two_way():
+    df = _distance_df()
+    one = mt.freq_table(df["treated"])
+    two = mt.freq_table(df["treated"], df["y"])
+    assert one["count"].sum() == len(df)
+    assert two.to_numpy().sum() == len(df)

@@ -33,7 +33,7 @@ print(mt.__version__)
 Expected version in this release:
 
 ```text
-0.2.5
+0.3.0
 ```
 
 ---
@@ -80,7 +80,7 @@ Supported methods:
 | Method | Description |
 |---|---|
 | `"nearest"` | Nearest-neighbor matching using propensity scores |
-| `"optimal"` | Simplified optimal 1:1 matching using the Hungarian algorithm |
+| `"optimal"` | Optimal matching using the Hungarian algorithm, including ratio > 1 when enough comparison units are available |
 | `"mahalanobis"` | Distance matching on supplied covariates |
 
 Example:
@@ -111,8 +111,10 @@ For the ATT estimand, matched treated units receive weight `1.0`. Control
 weights reflect their contribution to matched treated sets: in 1:1 matching a
 matched control receives weight `1.0`; with `ratio > 1`, each control in a
 treated unit's matched set receives `1 / actual_number_of_controls_matched`.
-When matching with replacement, reused controls accumulate these contributions.
-Unmatched observations receive weight `0.0`.
+For ATC, this logic is reversed: matched controls are the focal units and
+receive weight `1.0`, while matched treated units receive fractional weights.
+When matching with replacement, reused comparison units accumulate these
+contributions. Unmatched observations receive weight `0.0`.
 
 ---
 
@@ -324,9 +326,9 @@ This is a teaching library, not a complete replacement for R's `MatchIt` or `opt
 
 Current limitations:
 
-- ATT only.
+- ATT and ATC only.
 - Binary treatment only.
-- Optimal matching currently supports 1:1 matching only.
+- Optimal matching supports ratio > 1 when enough comparison units are available.
 - Full matching is not implemented like `optmatch`.
 - Diagnostic plots support numeric variables and teaching-oriented categorical displays.
 - Categorical covariates are handled in balance tables through dummy variables.
