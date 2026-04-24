@@ -1,0 +1,22 @@
+[project]
+name = "matchingtools-teaching"
+version = "0.2.5"
+description = "Teaching-oriented Python library for matching methods inspired by R MatchIt and optmatch."
+readme = "README.md"
+requires-python = ">=3.9"
+authors = [{name = "Course Teaching Team"}]
+dependencies = [
+    "numpy>=1.22",
+    "pandas>=1.4",
+    "scipy>=1.8",
+    "scikit-learn>=1.0",
+    "statsmodels>=0.13",
+    "matplotlib>=3.5"
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0", "build>=1.0", "twine>=4.0"]
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"

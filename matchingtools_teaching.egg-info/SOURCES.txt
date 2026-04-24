@@ -1,0 +1,13 @@
+README.md
+pyproject.toml
+matchingtools/__init__.py
+matchingtools/balance.py
+matchingtools/core.py
+matchingtools/diagnostics.py
+matchingtools/io.py
+matchingtools_teaching.egg-info/PKG-INFO
+matchingtools_teaching.egg-info/SOURCES.txt
+matchingtools_teaching.egg-info/dependency_links.txt
+matchingtools_teaching.egg-info/requires.txt
+matchingtools_teaching.egg-info/top_level.txt
+tests/test_basic.py

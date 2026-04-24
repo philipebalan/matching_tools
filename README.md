@@ -1,0 +1,460 @@
+# matchingtools-teaching
+
+A small teaching-oriented Python library for matching methods, inspired by R's `MatchIt`, `optmatch`, and balance-diagnostics workflow.
+
+The goal is to let students write:
+
+```python
+import matchingtools as mt
+```
+
+instead of copying matching functions into every notebook.
+
+---
+
+## Installation for students
+
+From a local folder:
+
+```bash
+cd path/to/matchingtools_teaching
+pip install -e .
+```
+
+Run the command from the folder that contains `pyproject.toml`.
+
+After installation, test:
+
+```python
+import matchingtools as mt
+print(mt.__version__)
+```
+
+Expected version in this release:
+
+```text
+0.2.5
+```
+
+---
+
+## Basic workflow
+
+```python
+import matchingtools as mt
+
+covariates = ["age", "gender", "hdi", "region", "income"]
+
+m = mt.matchit(
+    df,
+    treatment="bf",
+    covariates=covariates,
+    formula="bf ~ age + C(gender) + hdi + C(region) + C(income) + I(hdi ** 2)",
+    method="nearest",
+    ratio=1,
+    replace=True,
+)
+
+matched = mt.match_data(m)
+
+print(m)
+summary = mt.summary(m, standardize=True)
+
+mt.balance_table(m)
+mt.love_plot(m)
+
+att = mt.estimate_att(matched, outcome="lula", treatment="bf")
+print(att.summary())
+```
+
+---
+
+## Main functions
+
+### `matchit()`
+
+Main matching function, similar in spirit to R's `matchit()`.
+
+Supported methods:
+
+| Method | Description |
+|---|---|
+| `"nearest"` | Nearest-neighbor matching using propensity scores |
+| `"optimal"` | Simplified optimal 1:1 matching using the Hungarian algorithm |
+| `"mahalanobis"` | Distance matching on supplied covariates |
+
+Example:
+
+```python
+m = mt.matchit(
+    df,
+    treatment="bf",
+    covariates=["age", "hdi"],
+    formula="bf ~ age + hdi",
+    method="nearest"
+)
+```
+
+---
+
+### `match_data()`
+
+Extracts only matched observations.
+
+```python
+matched = mt.match_data(m)
+```
+
+The matched dataset includes a `weights` column.
+
+For the ATT estimand, matched treated units receive weight `1.0`. Control
+weights reflect their contribution to matched treated sets: in 1:1 matching a
+matched control receives weight `1.0`; with `ratio > 1`, each control in a
+treated unit's matched set receives `1 / actual_number_of_controls_matched`.
+When matching with replacement, reused controls accumulate these contributions.
+Unmatched observations receive weight `0.0`.
+
+---
+
+### `summary()`
+
+Produces a MatchIt-style summary object.
+
+Equivalent idea to R:
+
+```r
+summary(m.alt, standardize = TRUE)
+```
+
+Python version:
+
+```python
+s = mt.summary(m, standardize=True)
+
+s["overview"]
+s["balance"]
+s["pairs"]
+```
+
+You can also call:
+
+```python
+m.summary(standardize=True)
+m.summary(standardize=False)
+```
+
+`standardize=True` includes standardized mean-difference diagnostics.
+
+---
+
+### Match object overview
+
+Equivalent idea to printing an R MatchIt object:
+
+```r
+m.alt
+```
+
+Python version:
+
+```python
+print(m)
+```
+
+This reports:
+
+- matching method
+- estimand
+- treatment variable
+- original treated/control counts
+- matched treated/control counts
+- number of matched pairs
+
+---
+
+### `balance_table()`
+
+Computes covariate balance before and after matching.
+
+```python
+bal = mt.balance_table(m)
+bal
+```
+
+Returns:
+
+- standardized mean difference before matching
+- standardized mean difference after matching
+- absolute SMD before matching
+- absolute SMD after matching
+
+---
+
+### `love_plot()`
+
+Creates a Love plot of absolute standardized mean differences.
+
+```python
+mt.love_plot(m)
+```
+
+---
+
+## MatchIt-style diagnostic plots
+
+These functions are designed to mimic the ideas behind:
+
+```r
+plot(m.alt, "density", interactive = FALSE)
+plot(m.alt, "qq", interactive = FALSE)
+plot(m.alt, "jitter", interactive = FALSE)
+plot(m.alt, "histogram", interactive = FALSE)
+```
+
+The `interactive` argument is accepted for R-style compatibility but ignored.
+
+---
+
+### Density plot
+
+```python
+mt.plot(m, "density", variables=["age"], interactive=False)
+```
+
+Direct function:
+
+```python
+mt.density_plot(m, variables=["age"])
+```
+
+Use this to compare treated and control covariate distributions.
+
+---
+
+### eQQ / QQ plot
+
+```python
+mt.plot(m, "qq", variables=["age"], interactive=False)      # All and Matched panels side by side
+```
+
+Direct function:
+
+```python
+mt.qq_plot(m, variables=["age"])
+```
+
+Points closer to the 45-degree line indicate more similar treated/control distributions.
+
+---
+
+### Jitter plot
+
+```python
+mt.plot(m, "jitter", interactive=False)                    # Matched/unmatched treated/control rows
+```
+
+Direct function:
+
+```python
+mt.jitter_plot(m)
+```
+
+By default, this plots the propensity-score distance by treatment group. For Mahalanobis matching, pass a numeric variable:
+
+```python
+mt.jitter_plot(m, variable="age")
+```
+
+---
+
+### Histogram
+
+```python
+mt.plot(m, "histogram", variables=["age"], interactive=False)
+```
+
+Direct function:
+
+```python
+mt.histogram_plot(m, variables=["age"])
+```
+
+---
+
+## Before vs. after plots
+
+Most diagnostic plots default to before/after comparison panels.
+When `after=None`, the default, diagnostic plots show before/after comparison
+panels. Use `after=False` for the original sample only and `after=True` for the
+matched sample only.
+
+To plot the original sample:
+
+```python
+mt.density_plot(m, variables=["age"], after=False)
+mt.qq_plot(m, variables=["age"], after=False)
+mt.histogram_plot(m, variables=["age"], after=False)
+```
+
+To plot the matched sample:
+
+```python
+mt.density_plot(m, variables=["age"], after=True)
+mt.qq_plot(m, variables=["age"], after=True)
+mt.histogram_plot(m, variables=["age"], after=True)
+```
+
+---
+
+## Treatment-effect estimation
+
+```python
+matched = mt.match_data(m)
+att = mt.estimate_att(matched, outcome="lula", treatment="bf")
+print(att.summary())
+```
+
+This estimates the ATT using weighted OLS on the matched sample.
+
+---
+
+## Important limitations
+
+This is a teaching library, not a complete replacement for R's `MatchIt` or `optmatch`.
+
+Current limitations:
+
+- ATT only.
+- Binary treatment only.
+- Optimal matching currently supports 1:1 matching only.
+- Full matching is not implemented like `optmatch`.
+- Diagnostic plots support numeric variables and teaching-oriented categorical displays.
+- Categorical covariates are handled in balance tables through dummy variables.
+
+---
+
+## Suggested classroom import style
+
+```python
+import matchingtools as mt
+
+m = mt.matchit(df, treatment="bf", covariates=["age", "hdi"], method="nearest")
+dm = mt.match_data(m)
+
+mt.summary(m, standardize=True)
+mt.plot(m, "density", variables=["age"])
+mt.plot(m, "qq", variables=["age"])
+mt.plot(m, "jitter")
+mt.plot(m, "histogram", variables=["age"])
+```
+
+
+---
+
+## MatchIt-style Diagnostic Plots
+
+The package provides a plotting wrapper similar to R's `plot.matchit()`:
+
+```python
+mt.plot(m, "density", variables=["age"], interactive=False)
+mt.plot(m, "qq", variables=["age"], interactive=False)
+mt.plot(m, "jitter", interactive=False)
+mt.plot(m, "histogram", variables=["age"], interactive=False)
+```
+
+### eQQ plot
+
+`mt.plot(m, "qq", variables=["age"])` creates two panels for each variable:
+
+- `All`: treated versus control empirical quantiles before matching
+- `Matched`: treated versus control empirical quantiles after matching
+
+### Jitter plot
+
+`mt.plot(m, "jitter")` displays the distribution of propensity scores across four groups:
+
+- Unmatched treated units
+- Matched treated units
+- Matched control units
+- Unmatched control units
+
+The default x-axis is the estimated propensity score stored in `distance`.
+
+---
+
+## RItools-style pre-matching balance checks
+
+The package includes a teaching-oriented analogue of R's `RItools::xBalance()`.
+It is designed for pre-matching balance diagnostics: testing whether covariate means differ between treated and control groups before matching.
+
+R-style workflow:
+
+```r
+library(RItools)
+bal.prematch <- xBalance(mform, data = d, report = "all", na.rm = FALSE)
+print(bal.prematch)
+plot(bal.prematch)
+```
+
+Python workflow:
+
+```python
+import matchingtools as mt
+
+bal_prematch = mt.xbalance(
+    "bf ~ age + C(gender) + hdi + C(region) + C(income)",
+    data=df,
+    report="all",
+    na_rm=False,
+)
+
+print(bal_prematch)
+mt.plot(bal_prematch)
+```
+
+Alternative syntax without a formula:
+
+```python
+bal_prematch = mt.xbalance(
+    data=df,
+    treatment="bf",
+    covariates=["age", "gender", "hdi", "region", "income"],
+    report="all",
+    na_rm=False,
+)
+```
+
+### What `xbalance()` returns
+
+The returned object includes:
+
+- treated and control sample sizes for each covariate
+- treated and control means
+- raw difference in means
+- standardized mean difference
+- Welch t-test statistic
+- p-value for the null of no difference in means
+- an overall linear balance test
+
+Access the table directly:
+
+```python
+bal_prematch.summary()
+bal_prematch.table
+bal_prematch.overall
+```
+
+Plot the pre-matching standardized differences:
+
+```python
+bal_prematch.plot()
+# or
+mt.plot(bal_prematch)
+```
+
+### Notes
+
+- The treatment variable must be binary, coded `0/1` or `False/True`.
+- Use `C(variable)` in the formula to force categorical handling.
+- Numeric-coded categories should be converted with `.astype("category")` or wrapped in `C()` inside the formula.
+- This is not a full reimplementation of RItools; it provides the main teaching workflow: covariate-level tests, standardized differences, an overall test, and a diagnostic plot.
